@@ -61,6 +61,14 @@ namespace Calendar.Api
                 });
             builder.Services.AddAuthorization();
 
+            // Фронтенд (Vite) живёт на другом порту; токен идёт в заголовке Authorization, cookie не нужны.
+            var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? [];
+            builder.Services.AddCors(options =>
+                options.AddDefaultPolicy(policy => policy
+                    .WithOrigins(allowedOrigins)
+                    .AllowAnyHeader()
+                    .AllowAnyMethod()));
+
             builder.Services.AddScoped<ITokenService, TokenService>();
             builder.Services.AddScoped<IAuthService, AuthService>();
             builder.Services.AddScoped<IUserService, UserService>();
@@ -78,6 +86,8 @@ namespace Calendar.Api
             }
 
             app.UseHttpsRedirection();
+
+            app.UseCors();
 
             app.UseAuthentication();
             app.UseAuthorization();
