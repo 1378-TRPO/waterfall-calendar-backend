@@ -9,6 +9,9 @@ namespace Calendar.Api.Services
     {
         Task<EventDetailsDto> CreateAsync(int userId, CreateEventRequest request);
         Task<EventDetailsDto> GetAsync(int userId, int eventId);
+        Task<EventDetailsDto> UpdateAsync(int userId, int eventId, UpdateEventRequest request);
+        Task<EventDetailsDto> CancelAsync(int userId, int eventId);
+        Task<EventDetailsDto> SetRsvpAsync(int userId, int eventId, RsvpStatus status);
         Task<List<EventSummaryDto>> GetRangeAsync(int userId, DateTimeOffset from, DateTimeOffset to);
         Task<List<EventSummaryDto>> GetUpcomingAsync(int userId, int limit);
     }
@@ -57,6 +60,76 @@ namespace Calendar.Api.Services
         {
             var calendarEvent = await LoadAsync(eventId, track: false);
             EnsureCanView(calendarEvent, userId);
+            return ToDetails(calendarEvent, userId);
+        }
+
+        public async Task<EventDetailsDto> UpdateAsync(int userId, int eventId, UpdateEventRequest request)
+        {
+            var calendarEvent = await LoadAsync(eventId, track: true);
+            EnsureOrganizer(calendarEvent, userId);
+            EnsureNotCancelled(calendarEvent);
+
+            var participantIds = await ValidateAsync(calendarEvent.Type, request, userId);
+
+            calendarEvent.Title = request.Title.Trim();
+            calendarEvent.Description = NullIfBlank(request.Description);
+            calendarEvent.StartAt = request.StartAt!.Value.UtcDateTime;
+            calendarEvent.EndAt = request.EndAt!.Value.UtcDateTime;
+            calendarEvent.MeetingUrl = NullIfBlank(request.MeetingUrl);
+            calendarEvent.UpdatedAt = DateTime.UtcNow;
+
+            // Список участников заменяется целиком: ответы оставшихся сохраняются, новые получают pending.
+            var removed = calendarEvent.Participants.Where(p => !participantIds.Contains(p.UserId)).ToList();
+            _db.EventParticipants.RemoveRange(removed);
+            foreach (var userIdToAdd in participantIds.Where(id => calendarEvent.Participants.All(p => p.UserId != id)))
+            {
+                calendarEvent.Participants.Add(new EventParticipant
+                {
+                    UserId = userIdToAdd,
+                    RsvpStatus = RsvpStatus.Pending
+                });
+            }
+
+            await _db.SaveChangesAsync();
+
+            _logger.LogInformation("Пользователь {UserId} изменил запись {EventId}", userId, eventId);
+            return await GetAsync(userId, eventId);
+        }
+
+        public async Task<EventDetailsDto> CancelAsync(int userId, int eventId)
+        {
+            var calendarEvent = await LoadAsync(eventId, track: true);
+            EnsureOrganizer(calendarEvent, userId);
+            EnsureNotCancelled(calendarEvent);
+
+            calendarEvent.IsCancelled = true;
+            calendarEvent.UpdatedAt = DateTime.UtcNow;
+            await _db.SaveChangesAsync();
+
+            _logger.LogInformation("Пользователь {UserId} отменил запись {EventId}", userId, eventId);
+            return ToDetails(calendarEvent, userId);
+        }
+
+        public async Task<EventDetailsDto> SetRsvpAsync(int userId, int eventId, RsvpStatus status)
+        {
+            if (status == RsvpStatus.Pending)
+            {
+                throw ApiException.Validation(new Dictionary<string, string[]>
+                {
+                    ["status"] = ["Можно ответить только accepted или declined."]
+                });
+            }
+
+            var calendarEvent = await LoadAsync(eventId, track: true);
+            var participant = calendarEvent.Participants.FirstOrDefault(p => p.UserId == userId)
+                ?? throw ApiException.Forbidden("Отвечать на приглашение может только участник.");
+            EnsureNotCancelled(calendarEvent);
+
+            participant.RsvpStatus = status;
+            participant.RespondedAt = DateTime.UtcNow;
+            await _db.SaveChangesAsync();
+
+            _logger.LogInformation("Пользователь {UserId} ответил {Status} на запись {EventId}", userId, status, eventId);
             return ToDetails(calendarEvent, userId);
         }
 
@@ -135,6 +208,22 @@ namespace Calendar.Api.Services
             if (calendarEvent.OrganizerId != userId && !isParticipant)
             {
                 throw ApiException.Forbidden("Нет доступа к этой записи.");
+            }
+        }
+
+        private static void EnsureOrganizer(CalendarEvent calendarEvent, int userId)
+        {
+            if (calendarEvent.OrganizerId != userId)
+            {
+                throw ApiException.Forbidden("Это действие доступно только организатору.");
+            }
+        }
+
+        private static void EnsureNotCancelled(CalendarEvent calendarEvent)
+        {
+            if (calendarEvent.IsCancelled)
+            {
+                throw ApiException.Conflict("Запись отменена, действие недоступно.");
             }
         }
 
