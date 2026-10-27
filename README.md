@@ -27,6 +27,10 @@ dotnet run --project Calendar.Api
 Секция `Jwt` в `appsettings.Development.json` (ключ подписи не короче 32 символов) задаёт параметры токена;
 пример значений — в `appsettings.Development.example.json`. Без неё приложение не запустится.
 
+CORS: фронтенд (Vite) обращается к API с другого порта. Разрешённые источники заданы в `appsettings.json`
+(`Cors:AllowedOrigins`, по умолчанию `http://localhost:5173` и `http://127.0.0.1:5173`). Если фронтенд запускается
+на другом адресе, добавьте его в этот список.
+
 Строка подключения лежит в `appsettings.Development.json` (`ConnectionStrings:DefaultConnection`).
 Значения по умолчанию совпадают с `docker-compose.yml`. Порт на хосте — 5433, чтобы не конфликтовать
 с локальным PostgreSQL на 5432.
