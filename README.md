@@ -24,6 +24,9 @@ dotnet restore
 dotnet run --project Calendar.Api
 ```
 
+Секция `Jwt` в `appsettings.Development.json` (ключ подписи не короче 32 символов) задаёт параметры токена;
+пример значений — в `appsettings.Development.example.json`. Без неё приложение не запустится.
+
 Строка подключения лежит в `appsettings.Development.json` (`ConnectionStrings:DefaultConnection`).
 Значения по умолчанию совпадают с `docker-compose.yml`. Порт на хосте — 5433, чтобы не конфликтовать
 с локальным PostgreSQL на 5432.
@@ -44,6 +47,17 @@ dotnet ef database update --project Calendar.Api
 | bob@local | bob123 |
 | carol@local | carol123 |
 
+## API (аутентификация)
+
+| Метод и путь | Доступ | Описание |
+|---|---|---|
+| `POST /api/auth/register` | все | регистрация (`email`, `password` 6–72 символа, `displayName`), возвращает токен; 409, если email занят |
+| `POST /api/auth/login` | все | вход (`email`, `password`), возвращает токен; 401 при неверных данных |
+| `GET /api/auth/me` | токен | текущий пользователь |
+| `GET /api/users` | токен | список пользователей для выбора участников |
+
+Токен передаётся в заголовке `Authorization: Bearer <token>`, живёт 8 часов. Ошибки — `ProblemDetails`.
+
 ## Структура
 
 ```
@@ -59,7 +73,7 @@ Calendar/
 
 ## Известные ограничения
 
-- Схема БД и seed готовы; контроллеры и сервисы пока не реализованы.
+- Реализованы схема БД, seed и аутентификация; события, RSVP и уведомления пока нет.
 - Вне scope MVP: email/push/WebSocket-уведомления, интеграции с Google/Yandex Calendar,
   повторяющиеся события, часовые пояса, приватные календари, мобильная верстка (см. SRS, раздел 5).
 - Авторизация в MVP мокируется пулом фикстур пользователей (FR-1).
