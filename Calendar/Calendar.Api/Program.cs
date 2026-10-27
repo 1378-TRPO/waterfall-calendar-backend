@@ -64,6 +64,7 @@ namespace Calendar.Api
             builder.Services.AddScoped<ITokenService, TokenService>();
             builder.Services.AddScoped<IAuthService, AuthService>();
             builder.Services.AddScoped<IUserService, UserService>();
+            builder.Services.AddScoped<IEventService, EventService>();
 
             var app = builder.Build();
 
