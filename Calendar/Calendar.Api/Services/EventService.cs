@@ -13,6 +13,7 @@ namespace Calendar.Api.Services
         Task<EventDetailsDto> UpdateAsync(int userId, int eventId, UpdateEventRequest request);
         Task<EventDetailsDto> CancelAsync(int userId, int eventId);
         Task<EventDetailsDto> SetRsvpAsync(int userId, int eventId, RsvpStatus status);
+        Task PingAsync(int userId, int eventId, int participantUserId);
         Task<List<EventSummaryDto>> GetRangeAsync(int userId, DateTimeOffset from, DateTimeOffset to);
         Task<List<EventSummaryDto>> GetUpcomingAsync(int userId, int limit);
     }
@@ -165,6 +166,26 @@ namespace Calendar.Api.Services
 
             _logger.LogInformation("Пользователь {UserId} ответил {Status} на запись {EventId}", userId, status, eventId);
             return ToDetails(calendarEvent, userId);
+        }
+
+        public async Task PingAsync(int userId, int eventId, int participantUserId)
+        {
+            var calendarEvent = await LoadAsync(eventId, track: true);
+            EnsureOrganizer(calendarEvent, userId);
+
+            if (calendarEvent.Participants.All(p => p.UserId != participantUserId))
+            {
+                throw ApiException.NotFound("Участник не найден.");
+            }
+
+            EnsureNotCancelled(calendarEvent);
+
+            _notifications.StagePinged(calendarEvent, participantUserId);
+            await _db.SaveChangesAsync();
+
+            _logger.LogInformation(
+                "Пользователь {UserId} пингнул участника {ParticipantId} в записи {EventId}",
+                userId, participantUserId, eventId);
         }
 
         public async Task<List<EventSummaryDto>> GetRangeAsync(int userId, DateTimeOffset from, DateTimeOffset to)
