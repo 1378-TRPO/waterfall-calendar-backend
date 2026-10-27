@@ -17,17 +17,17 @@ namespace Calendar.Api
 
             // Add services to the container.
 
+            // Enum'ы в JSON — строки в camelCase ("meeting", "accepted"), как в SRS.
+            // Конвертер нужен и контроллерам, и генератору OpenAPI (он читает настройки Http JSON),
+            // иначе Swagger описывает enum'ы числами, а API числа не принимает.
+            JsonConverter enumConverter = new JsonStringEnumConverter(JsonNamingPolicy.CamelCase, allowIntegerValues: false);
             builder.Services.AddControllers()
-                .AddJsonOptions(options =>
-                {
-                    // Enum'ы в JSON — строки в camelCase ("meeting", "accepted"), как в SRS.
-                    options.JsonSerializerOptions.Converters.Add(
-                        new JsonStringEnumConverter(JsonNamingPolicy.CamelCase, allowIntegerValues: false));
-                });
+                .AddJsonOptions(options => options.JsonSerializerOptions.Converters.Add(enumConverter));
+            builder.Services.ConfigureHttpJsonOptions(options => options.SerializerOptions.Converters.Add(enumConverter));
             builder.Services.AddProblemDetails();
             builder.Services.AddExceptionHandler<ApiExceptionHandler>();
             // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
-            builder.Services.AddOpenApi();
+            builder.Services.AddOpenApi(options => options.AddBearerSecurity());
 
             builder.Services.AddDbContext<AppDbContext>(options =>
                 options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
@@ -84,6 +84,12 @@ namespace Calendar.Api
             if (app.Environment.IsDevelopment())
             {
                 app.MapOpenApi();
+                app.UseSwaggerUI(options =>
+                {
+                    // Интерфейс читает документ, который генерирует Microsoft.AspNetCore.OpenApi.
+                    options.SwaggerEndpoint("/openapi/v1.json", "Calendar API v1");
+                    options.RoutePrefix = "swagger";
+                });
             }
 
             app.UseHttpsRedirection();
