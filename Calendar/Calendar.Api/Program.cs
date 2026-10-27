@@ -1,4 +1,6 @@
 using System.Text;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using Calendar.Api.Data;
 using Calendar.Api.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -15,8 +17,15 @@ namespace Calendar.Api
 
             // Add services to the container.
 
-            builder.Services.AddControllers();
+            builder.Services.AddControllers()
+                .AddJsonOptions(options =>
+                {
+                    // Enum'ы в JSON — строки в camelCase ("meeting", "accepted"), как в SRS.
+                    options.JsonSerializerOptions.Converters.Add(
+                        new JsonStringEnumConverter(JsonNamingPolicy.CamelCase, allowIntegerValues: false));
+                });
             builder.Services.AddProblemDetails();
+            builder.Services.AddExceptionHandler<ApiExceptionHandler>();
             // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
             builder.Services.AddOpenApi();
 
