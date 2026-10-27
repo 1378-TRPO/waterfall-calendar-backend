@@ -13,6 +13,7 @@ namespace Calendar.Api.Services
         Task<EventDetailsDto> UpdateAsync(int userId, int eventId, UpdateEventRequest request);
         Task<EventDetailsDto> CancelAsync(int userId, int eventId);
         Task<EventDetailsDto> SetRsvpAsync(int userId, int eventId, RsvpStatus status);
+        Task PingAsync(int userId, int eventId, int participantUserId);
         Task<List<EventSummaryDto>> GetRangeAsync(int userId, DateTimeOffset from, DateTimeOffset to);
         Task<List<EventSummaryDto>> GetUpcomingAsync(int userId, int limit);
     }
@@ -20,11 +21,13 @@ namespace Calendar.Api.Services
     public class EventService : IEventService
     {
         private readonly AppDbContext _db;
+        private readonly INotificationService _notifications;
         private readonly ILogger<EventService> _logger;
 
-        public EventService(AppDbContext db, ILogger<EventService> logger)
+        public EventService(AppDbContext db, INotificationService notifications, ILogger<EventService> logger)
         {
             _db = db;
+            _notifications = notifications;
             _logger = logger;
         }
 
@@ -32,6 +35,12 @@ namespace Calendar.Api.Services
         {
             var type = request.Type!.Value;
             var participantIds = await ValidateAsync(type, request, userId);
+
+            var organizer = await _db.Users.FindAsync(userId);
+            if (organizer is null)
+            {
+                throw new ApiException(StatusCodes.Status401Unauthorized, "Пользователь не найден.");
+            }
 
             var now = DateTime.UtcNow;
             var calendarEvent = new CalendarEvent
@@ -42,7 +51,7 @@ namespace Calendar.Api.Services
                 StartAt = request.StartAt!.Value.UtcDateTime,
                 EndAt = request.EndAt!.Value.UtcDateTime,
                 MeetingUrl = NullIfBlank(request.MeetingUrl),
-                OrganizerId = userId,
+                Organizer = organizer,
                 CreatedAt = now,
                 UpdatedAt = now,
                 Participants = participantIds
@@ -51,6 +60,7 @@ namespace Calendar.Api.Services
             };
 
             _db.CalendarEvents.Add(calendarEvent);
+            _notifications.StageInvited(calendarEvent, participantIds);
             await _db.SaveChangesAsync();
 
             _logger.LogInformation("Пользователь {UserId} создал {Type} {EventId}", userId, type, calendarEvent.Id);
@@ -72,23 +82,46 @@ namespace Calendar.Api.Services
 
             var participantIds = await ValidateAsync(calendarEvent.Type, request, userId);
 
-            calendarEvent.Title = request.Title.Trim();
-            calendarEvent.Description = NullIfBlank(request.Description);
-            calendarEvent.StartAt = request.StartAt!.Value.UtcDateTime;
-            calendarEvent.EndAt = request.EndAt!.Value.UtcDateTime;
-            calendarEvent.MeetingUrl = NullIfBlank(request.MeetingUrl);
+            var title = request.Title.Trim();
+            var description = NullIfBlank(request.Description);
+            var startAt = request.StartAt!.Value.UtcDateTime;
+            var endAt = request.EndAt!.Value.UtcDateTime;
+            var meetingUrl = NullIfBlank(request.MeetingUrl);
+
+            var previousIds = calendarEvent.Participants.Select(p => p.UserId).ToHashSet();
+            var fieldsChanged = calendarEvent.Title != title
+                || calendarEvent.Description != description
+                || !SameInstant(calendarEvent.StartAt, startAt)
+                || !SameInstant(calendarEvent.EndAt, endAt)
+                || calendarEvent.MeetingUrl != meetingUrl;
+            var participantsChanged = !previousIds.SetEquals(participantIds);
+
+            calendarEvent.Title = title;
+            calendarEvent.Description = description;
+            calendarEvent.StartAt = startAt;
+            calendarEvent.EndAt = endAt;
+            calendarEvent.MeetingUrl = meetingUrl;
             calendarEvent.UpdatedAt = DateTime.UtcNow;
 
             // Список участников заменяется целиком: ответы оставшихся сохраняются, новые получают pending.
             var removed = calendarEvent.Participants.Where(p => !participantIds.Contains(p.UserId)).ToList();
             _db.EventParticipants.RemoveRange(removed);
-            foreach (var userIdToAdd in participantIds.Where(id => calendarEvent.Participants.All(p => p.UserId != id)))
+            var addedIds = participantIds.Where(id => !previousIds.Contains(id)).ToList();
+            foreach (var userIdToAdd in addedIds)
             {
                 calendarEvent.Participants.Add(new EventParticipant
                 {
                     UserId = userIdToAdd,
                     RsvpStatus = RsvpStatus.Pending
                 });
+            }
+
+            // Новым участникам — приглашение; тем, кто остался, — «изменено», но только если что-то поменялось.
+            // Убранным участникам уведомление не создаётся: такого типа нет в Design Doc.
+            _notifications.StageInvited(calendarEvent, addedIds);
+            if (fieldsChanged || participantsChanged)
+            {
+                _notifications.StageChanged(calendarEvent, participantIds.Where(previousIds.Contains));
             }
 
             await _db.SaveChangesAsync();
@@ -105,6 +138,7 @@ namespace Calendar.Api.Services
 
             calendarEvent.IsCancelled = true;
             calendarEvent.UpdatedAt = DateTime.UtcNow;
+            _notifications.StageCancelled(calendarEvent, calendarEvent.Participants.Select(p => p.UserId));
             await _db.SaveChangesAsync();
 
             _logger.LogInformation("Пользователь {UserId} отменил запись {EventId}", userId, eventId);
@@ -132,6 +166,26 @@ namespace Calendar.Api.Services
 
             _logger.LogInformation("Пользователь {UserId} ответил {Status} на запись {EventId}", userId, status, eventId);
             return ToDetails(calendarEvent, userId);
+        }
+
+        public async Task PingAsync(int userId, int eventId, int participantUserId)
+        {
+            var calendarEvent = await LoadAsync(eventId, track: true);
+            EnsureOrganizer(calendarEvent, userId);
+
+            if (calendarEvent.Participants.All(p => p.UserId != participantUserId))
+            {
+                throw ApiException.NotFound("Участник не найден.");
+            }
+
+            EnsureNotCancelled(calendarEvent);
+
+            _notifications.StagePinged(calendarEvent, participantUserId);
+            await _db.SaveChangesAsync();
+
+            _logger.LogInformation(
+                "Пользователь {UserId} пингнул участника {ParticipantId} в записи {EventId}",
+                userId, participantUserId, eventId);
         }
 
         public async Task<List<EventSummaryDto>> GetRangeAsync(int userId, DateTimeOffset from, DateTimeOffset to)
@@ -328,6 +382,10 @@ namespace Calendar.Api.Services
 
             return participantIds;
         }
+
+        // PostgreSQL хранит время с точностью до микросекунды (10 тиков), а запрос может прийти точнее.
+        private static bool SameInstant(DateTime stored, DateTime requested) =>
+            stored.Ticks / 10 == requested.Ticks / 10;
 
         private static string? NullIfBlank(string? value) =>
             string.IsNullOrWhiteSpace(value) ? null : value.Trim();

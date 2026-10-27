@@ -50,6 +50,13 @@ namespace Calendar.Api.Controllers
         public async Task<ActionResult<EventDetailsDto>> Cancel(int id) =>
             Ok(await _events.CancelAsync(User.GetUserId(), id));
 
+        [HttpPost("{id:int}/participants/{userId:int}/ping")]
+        public async Task<IActionResult> Ping(int id, int userId)
+        {
+            await _events.PingAsync(User.GetUserId(), id, userId);
+            return NoContent();
+        }
+
         [HttpPut("{id:int}/rsvp")]
         public async Task<ActionResult<EventDetailsDto>> Rsvp(int id, RsvpRequest request) =>
             Ok(await _events.SetRsvpAsync(User.GetUserId(), id, request.Status!.Value));
