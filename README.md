@@ -51,6 +51,21 @@ dotnet ef database update --project Calendar.Api
 | bob@local | bob123 |
 | carol@local | carol123 |
 
+## Swagger UI
+
+В режиме разработки (`ASPNETCORE_ENVIRONMENT=Development`, как при `dotnet run` из студии или консоли) API можно
+пробовать в браузере: `http://localhost:5067/swagger` (порт см. в выводе `dotnet run`). Описание API в формате
+OpenAPI лежит на `/openapi/v1.json`.
+
+Как вызвать защищённый эндпоинт:
+
+1. Выполнить `POST /api/auth/login` (Try it out → Execute), например `alice@local` / `alice123`, скопировать `token` из ответа.
+2. Нажать **Authorize**, вставить токен (без слова `Bearer`), нажать Authorize и Close.
+3. Замок у защищённых эндпоинтов закроется, дальше запросы идут с заголовком `Authorization: Bearer <token>`.
+
+Значения enum'ов в запросах и ответах — строки в нижнем регистре (`meeting`, `accepted`), числа не принимаются.
+Swagger UI доступен только в Development, в других средах он выключен.
+
 ## API
 
 | Метод и путь | Доступ | Описание |
