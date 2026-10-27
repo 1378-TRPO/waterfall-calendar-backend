@@ -56,7 +56,7 @@ namespace Calendar.Api.Data
             modelBuilder.Entity<CalendarEvent>(e =>
             {
                 e.ToTable(t => t.HasCheckConstraint("CK_CalendarEvents_EndAt_After_StartAt", "\"EndAt\" > \"StartAt\""));
-                e.Property(x => x.Type).HasConversion<string>().HasMaxLength(16);
+                e.Property(x => x.Type).HasLowercaseConversion().HasMaxLength(16);
                 e.Property(x => x.Title).HasMaxLength(200).IsRequired();
                 e.Property(x => x.MeetingUrl).HasMaxLength(500);
                 e.HasOne(x => x.Organizer)
@@ -70,7 +70,7 @@ namespace Calendar.Api.Data
             modelBuilder.Entity<EventParticipant>(e =>
             {
                 e.HasKey(x => new { x.EventId, x.UserId });
-                e.Property(x => x.RsvpStatus).HasConversion<string>().HasMaxLength(16);
+                e.Property(x => x.RsvpStatus).HasLowercaseConversion().HasMaxLength(16);
                 e.HasOne(x => x.Event)
                     .WithMany(ev => ev.Participants)
                     .HasForeignKey(x => x.EventId)
@@ -84,7 +84,7 @@ namespace Calendar.Api.Data
 
             modelBuilder.Entity<Notification>(e =>
             {
-                e.Property(x => x.Type).HasConversion<string>().HasMaxLength(16);
+                e.Property(x => x.Type).HasLowercaseConversion().HasMaxLength(16);
                 e.Property(x => x.Message).HasMaxLength(300).IsRequired();
                 e.HasOne(x => x.User)
                     .WithMany(u => u.Notifications)
