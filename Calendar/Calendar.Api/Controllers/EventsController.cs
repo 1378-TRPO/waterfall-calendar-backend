@@ -1,3 +1,4 @@
+using System.ComponentModel.DataAnnotations;
 using Calendar.Api.Models.Dtos;
 using Calendar.Api.Services;
 using Microsoft.AspNetCore.Authorization;
@@ -22,8 +23,8 @@ namespace Calendar.Api.Controllers
 
         [HttpGet]
         public async Task<ActionResult<List<EventSummaryDto>>> GetRange(
-            [FromQuery] DateTimeOffset from, [FromQuery] DateTimeOffset to) =>
-            Ok(await _events.GetRangeAsync(User.GetUserId(), from, to));
+            [FromQuery, Required] DateTimeOffset? from, [FromQuery, Required] DateTimeOffset? to) =>
+            Ok(await _events.GetRangeAsync(User.GetUserId(), from!.Value, to!.Value));
 
         [HttpGet("upcoming")]
         public async Task<ActionResult<List<EventSummaryDto>>> GetUpcoming(

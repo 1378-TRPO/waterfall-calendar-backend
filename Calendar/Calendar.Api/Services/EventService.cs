@@ -1,3 +1,4 @@
+using System.Linq.Expressions;
 using Calendar.Api.Data;
 using Calendar.Api.Models;
 using Calendar.Api.Models.Dtos;
@@ -146,10 +147,11 @@ namespace Calendar.Api.Services
             var fromUtc = from.UtcDateTime;
             var toUtc = to.UtcDateTime;
 
-            return await SummariesFor(userId)
+            return await VisibleTo(userId)
                 .Where(e => e.StartAt < toUtc && e.EndAt > fromUtc)
                 .OrderBy(e => e.StartAt)
                 .ThenBy(e => e.Id)
+                .Select(ToSummary(userId))
                 .ToListAsync();
         }
 
@@ -157,34 +159,39 @@ namespace Calendar.Api.Services
         {
             var now = DateTime.UtcNow;
 
-            return await SummariesFor(userId)
-                .Where(e => e.StartAt > now && !e.IsCancelled && e.MyRsvpStatus != RsvpStatus.Declined)
+            return await VisibleTo(userId)
+                .Where(e => e.StartAt > now
+                    && !e.IsCancelled
+                    && !e.Participants.Any(p => p.UserId == userId && p.RsvpStatus == RsvpStatus.Declined))
                 .OrderBy(e => e.StartAt)
                 .ThenBy(e => e.Id)
                 .Take(limit)
+                .Select(ToSummary(userId))
                 .ToListAsync();
         }
 
         // Запись видна, если пользователь организатор или участник.
-        private IQueryable<EventSummaryDto> SummariesFor(int userId) =>
+        private IQueryable<CalendarEvent> VisibleTo(int userId) =>
             _db.CalendarEvents
                 .AsNoTracking()
-                .Where(e => e.OrganizerId == userId || e.Participants.Any(p => p.UserId == userId))
-                .Select(e => new EventSummaryDto(
-                    e.Id,
-                    e.Type,
-                    e.Title,
-                    e.StartAt,
-                    e.EndAt,
-                    e.MeetingUrl,
-                    e.OrganizerId,
-                    e.Organizer.DisplayName,
-                    e.IsCancelled,
-                    e.OrganizerId == userId,
-                    e.Participants
-                        .Where(p => p.UserId == userId)
-                        .Select(p => (RsvpStatus?)p.RsvpStatus)
-                        .FirstOrDefault()));
+                .Where(e => e.OrganizerId == userId || e.Participants.Any(p => p.UserId == userId));
+
+        private static Expression<Func<CalendarEvent, EventSummaryDto>> ToSummary(int userId) =>
+            e => new EventSummaryDto(
+                e.Id,
+                e.Type,
+                e.Title,
+                e.StartAt,
+                e.EndAt,
+                e.MeetingUrl,
+                e.OrganizerId,
+                e.Organizer.DisplayName,
+                e.IsCancelled,
+                e.OrganizerId == userId,
+                e.Participants
+                    .Where(p => p.UserId == userId)
+                    .Select(p => (RsvpStatus?)p.RsvpStatus)
+                    .FirstOrDefault());
 
         private async Task<CalendarEvent> LoadAsync(int eventId, bool track)
         {
