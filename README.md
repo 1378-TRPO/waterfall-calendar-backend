@@ -28,6 +28,22 @@ dotnet run --project Calendar.Api
 Значения по умолчанию совпадают с `docker-compose.yml`. Порт на хосте — 5433, чтобы не конфликтовать
 с локальным PostgreSQL на 5432.
 
+Миграции применяются командой (локальный `dotnet-ef`, один раз `dotnet tool restore`):
+
+```bash
+cd Calendar
+dotnet tool restore
+dotnet ef database update --project Calendar.Api
+```
+
+## Тестовые пользователи (seed)
+
+| Email | Пароль |
+|---|---|
+| alice@local | alice123 |
+| bob@local | bob123 |
+| carol@local | carol123 |
+
 ## Структура
 
 ```
@@ -43,7 +59,7 @@ Calendar/
 
 ## Известные ограничения
 
-- Сущности, миграции и контроллеры пока не реализованы — каркас проекта.
+- Схема БД и seed готовы; контроллеры и сервисы пока не реализованы.
 - Вне scope MVP: email/push/WebSocket-уведомления, интеграции с Google/Yandex Calendar,
   повторяющиеся события, часовые пояса, приватные календари, мобильная верстка (см. SRS, раздел 5).
 - Авторизация в MVP мокируется пулом фикстур пользователей (FR-1).
