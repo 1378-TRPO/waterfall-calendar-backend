@@ -1,5 +1,9 @@
+using System.Text;
 using Calendar.Api.Data;
+using Calendar.Api.Services;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.IdentityModel.Tokens;
 
 namespace Calendar.Api
 {
@@ -19,6 +23,39 @@ namespace Calendar.Api
             builder.Services.AddDbContext<AppDbContext>(options =>
                 options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
 
+            builder.Services
+                .AddOptions<JwtOptions>()
+                .Bind(builder.Configuration.GetSection(JwtOptions.SectionName))
+                .ValidateDataAnnotations()
+                .ValidateOnStart();
+
+            var jwt = builder.Configuration.GetSection(JwtOptions.SectionName).Get<JwtOptions>() ?? new JwtOptions();
+
+            builder.Services
+                .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+                .AddJwtBearer(options =>
+                {
+                    // Оставляем имена claims как в токене ("sub", "name"), без переименования в ClaimTypes.*.
+                    options.MapInboundClaims = false;
+                    options.TokenValidationParameters = new TokenValidationParameters
+                    {
+                        ValidateIssuer = true,
+                        ValidIssuer = jwt.Issuer,
+                        ValidateAudience = true,
+                        ValidAudience = jwt.Audience,
+                        ValidateIssuerSigningKey = true,
+                        IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwt.Key)),
+                        ValidateLifetime = true,
+                        ClockSkew = TimeSpan.FromMinutes(1),
+                        NameClaimType = "name"
+                    };
+                });
+            builder.Services.AddAuthorization();
+
+            builder.Services.AddScoped<ITokenService, TokenService>();
+            builder.Services.AddScoped<IAuthService, AuthService>();
+            builder.Services.AddScoped<IUserService, UserService>();
+
             var app = builder.Build();
 
             // Configure the HTTP request pipeline.
@@ -32,8 +69,8 @@ namespace Calendar.Api
 
             app.UseHttpsRedirection();
 
+            app.UseAuthentication();
             app.UseAuthorization();
-
 
             app.MapControllers();
 
